@@ -28,6 +28,82 @@ session.wait_exit(deadline: 5.seconds).success?.should be_true
 session.close
 ```
 
+## CLI
+
+Build the binary with `shards build`, then use `bin/term-vt` to drive any
+CLI or TUI from the shell without writing Crystal code.
+
+Global flags: `--rows N` (default `24`), `--cols N` (default `80`),
+`--timeout SPAN` (default `10s`, accepts `500ms`, `5s`, `1m`), `--styled`,
+and `--quiet`. `--quiet` suppresses stdout snapshot emission; failure
+diagnostics still go to stderr.
+
+| Verb | Purpose |
+| --- | --- |
+| `run [flags] [--expect TEXT ...] [--expect-exit N] -- CMD ARGS...` | Run to exit, then assert final screen text and/or exit code. With no expectations, exit 0 only when the child exits 0 before timeout. |
+| `snapshot [flags] [--golden FILE] [--update] [--idle SETTLE] -- CMD ARGS...` | Print the final padded screen snapshot, compare/update a golden file, or capture a long-running app after the screen idles. |
+| `script FILE.tape` | Execute a line-based tape against one spawned session. |
+
+Exit codes are a public contract:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success; all assertions held. |
+| `1` | Assertion, expectation, golden mismatch, nonzero child exit where checked, or timeout. The final screen snapshot is printed to stderr. |
+| `2` | Usage error or spawn failure. |
+
+Examples:
+
+```sh
+bin/term-vt run --expect "ready" --expect-exit 0 -- sh -c 'printf ready'
+bin/term-vt snapshot --rows 10 --cols 40 -- sh -c 'printf hi'
+bin/term-vt snapshot --golden spec/fixtures/screen.txt --update -- my-tui --demo
+bin/term-vt script examples/shell.tape
+```
+
+### Tape DSL
+
+Tapes are line-based. `#` starts a comment outside double-quoted strings.
+Strings must be double-quoted and support Crystal-style escapes such as
+`\n`, `\t`, `\e`, `\"`, `\\`, `\x21`, and `\u{2713}`. A tape has exactly
+one `run`; `rows` and `cols` may appear before it, and every action after
+that runs against the same session. `wait` and `idle` always require explicit
+deadlines.
+
+```text
+rows 24
+cols 80
+run vim --clean -u NONE
+wait "~" 5s
+idle 50ms 5s
+type "iHello"
+press escape
+press enter
+expect "Hello"
+expect-not "Error"
+snapshot out.txt
+snapshot
+resize 40 120
+send-exit
+expect-exit 0
+```
+
+Supported directives:
+
+| Directive | Meaning |
+| --- | --- |
+| `rows N`, `cols N` | Initial screen size before `run`. |
+| `run CMD ARGS...` | Spawn the one child command for the tape. |
+| `wait "TEXT" DEADLINE` | Wait until the screen contains text. |
+| `idle SETTLE DEADLINE` | Wait until the screen has not changed for `SETTLE`. |
+| `type "TEXT"` | Send text bytes to the child. |
+| `press KEY` | Send a named key from the supported key table. |
+| `expect "TEXT"` / `expect-not "TEXT"` | Assert current screen contents without waiting. |
+| `snapshot [FILE]` | Write the current snapshot to `FILE`, or stdout when no file is given. |
+| `resize ROWS COLS` | Resize the PTY and screen. |
+| `send-exit` | Close the session and assert that the child exits. |
+| `expect-exit N` | Assert the child exit code. |
+
 ## API
 
 - `Term::VT::Parser` is a stateful VT/ANSI byte parser. It accepts
