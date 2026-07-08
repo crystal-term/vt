@@ -119,6 +119,20 @@ module Term::VT::CLI
             require_session(session, directive).type(directive.text)
           when Tape::Press
             require_session(session, directive).press(directive.key)
+          when Tape::Click
+            active = require_session(session, directive)
+            begin
+              active.click(directive.row, directive.col, directive.button)
+            rescue ex : ArgumentError
+              raise Failure.new(ex.message || "click failed", render(active.screen), directive.line)
+            end
+          when Tape::Paste
+            active = require_session(session, directive)
+            begin
+              active.paste(directive.text)
+            rescue ex : ArgumentError
+              raise Failure.new(ex.message || "paste failed", render(active.screen), directive.line)
+            end
           when Tape::Expect
             active = require_session(session, directive)
             screen = active.screen

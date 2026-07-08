@@ -78,6 +78,24 @@ module Term::VT::CLI
       end
     end
 
+    class Click < Directive
+      getter row : Int32
+      getter col : Int32
+      getter button : Symbol
+
+      def initialize(line : Int32, @row : Int32, @col : Int32, @button : Symbol = :left)
+        super(line)
+      end
+    end
+
+    class Paste < Directive
+      getter text : String
+
+      def initialize(line : Int32, @text : String)
+        super(line)
+      end
+    end
+
     class Expect < Directive
       getter text : String
 
@@ -133,8 +151,8 @@ module Term::VT::CLI
     private class Parser
       KEYWORDS = {
         "rows", "cols", "run", "wait", "idle", "type", "press",
-        "expect", "expect-not", "snapshot", "resize", "send-exit",
-        "expect-exit",
+        "click", "paste", "expect", "expect-not", "snapshot", "resize",
+        "send-exit", "expect-exit",
       }
 
       def initialize(@source : String)
@@ -187,6 +205,28 @@ module Term::VT::CLI
               require_run!(saw_run, "press", line_number)
               key, index = read_key(tokens, index + 1, line_number)
               directives << Press.new(line_number, key)
+            when "click"
+              require_run!(saw_run, "click", line_number)
+              row, index = read_non_negative_int(tokens, index + 1, line_number, "click row")
+              col, index = read_non_negative_int(tokens, index, line_number, "click column")
+              button = :left
+              if next_token = tokens[index]?
+                unless keyword?(next_token)
+                  button = case next_token.value
+                           when "left"   then :left
+                           when "middle" then :middle
+                           when "right"  then :right
+                           else
+                             raise error(line_number, "unknown click button #{next_token.value.inspect}")
+                           end
+                  index += 1
+                end
+              end
+              directives << Click.new(line_number, row, col, button)
+            when "paste"
+              require_run!(saw_run, "paste", line_number)
+              text, index = read_quoted(tokens, index + 1, line_number, "paste text")
+              directives << Paste.new(line_number, text)
             when "expect"
               require_run!(saw_run, "expect", line_number)
               text, index = read_quoted(tokens, index + 1, line_number, "expected text")
@@ -378,6 +418,14 @@ module Term::VT::CLI
         token = require_token(tokens, index, line_number, label)
         value = token.value.to_i?
         raise error(line_number, "#{label} must be a positive integer") unless value && value > 0
+
+        {value, index + 1}
+      end
+
+      private def read_non_negative_int(tokens : Array(Token), index : Int32, line_number : Int32, label : String) : Tuple(Int32, Int32)
+        token = require_token(tokens, index, line_number, label)
+        value = token.value.to_i?
+        raise error(line_number, "#{label} must be a non-negative integer") unless value && value >= 0
 
         {value, index + 1}
       end

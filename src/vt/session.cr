@@ -1,4 +1,5 @@
 require "./keys"
+require "./mouse"
 require "./pty"
 require "./screen"
 
@@ -80,6 +81,57 @@ module Term::VT
       end
 
       self
+    end
+
+    # Coordinates are 0-based (matching `screen.cursor` / `screen.find`).
+    # Raises ArgumentError when the live screen has mouse tracking off.
+    def mouse_down(row : Int32, col : Int32, button : Symbol = :left) : self
+      send_mouse(row, col, button, release: false)
+    end
+
+    def mouse_up(row : Int32, col : Int32, button : Symbol = :left) : self
+      send_mouse(row, col, button, release: true)
+    end
+
+    def click(row : Int32, col : Int32, button : Symbol = :left) : self
+      mouse_down(row, col, button)
+      mouse_up(row, col, button)
+    end
+
+    # Motion event (meaningful under Button/Any tracking). Encodes bit 32.
+    def mouse_move(row : Int32, col : Int32, button : Symbol = :left) : self
+      send_mouse(row, col, button, release: false, motion: true)
+    end
+
+    # Wheel press events (buttons 64/65). `direction` is `:up` or `:down`.
+    def scroll(row : Int32, col : Int32, direction : Symbol) : self
+      button = case direction
+               when :up   then :wheel_up
+               when :down then :wheel_down
+               else
+                 raise ArgumentError.new("unknown scroll direction: #{direction}")
+               end
+      mouse_down(row, col, button)
+    end
+
+    # Wraps in bracketed-paste markers when the live screen has `?2004` on;
+    # otherwise sends raw text. Does not raise when bracketed paste is off.
+    def paste(text : String) : self
+      if @mutex.synchronize { @screen.bracketed_paste? }
+        send("\e[200~#{text}\e[201~")
+      else
+        send(text)
+      end
+    end
+
+    # Sends `\e[I` (focused) or `\e[O` (blurred). Raises when focus reporting
+    # is not enabled on the live screen.
+    def focus(focused : Bool) : self
+      unless @mutex.synchronize { @screen.focus_reporting? }
+        raise ArgumentError.new("focus reporting is not enabled (CSI ?1004h)")
+      end
+
+      send(focused ? "\e[I" : "\e[O")
     end
 
     def screen : Screen
@@ -221,6 +273,24 @@ module Term::VT
       @pty.master.write(bytes)
       @pty.master.flush
     rescue IO::Error
+    end
+
+    private def send_mouse(
+      row : Int32,
+      col : Int32,
+      button : Symbol,
+      *,
+      release : Bool,
+      motion : Bool = false,
+    ) : self
+      encoding = @mutex.synchronize do
+        if @screen.mouse_tracking.off?
+          raise ArgumentError.new("mouse tracking is not enabled (CSI ?1000h / ?9h / ?1002h / ?1003h)")
+        end
+        @screen.mouse_encoding
+      end
+
+      send(Mouse.encode(row, col, button, release: release, motion: motion, encoding: encoding))
     end
 
     private def notify_update : Nil

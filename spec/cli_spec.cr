@@ -141,4 +141,31 @@ describe "term-vt CLI" do
       result[:stderr].should eq("")
     end
   end
+
+  it "runs a tape using click and paste directives" do
+    Term::VT::Spec.with_pty do
+      tape = File.tempname("term-vt-cli-click-paste", ".tape")
+      # Child enables SGR mouse + bracketed paste in raw mode, then dumps stdin.
+      # click 0 0 → 18 bytes (down+up); paste "x" with brackets → 13 bytes.
+      # Use \e (not \033) so the tape string parser does not treat \0 as a null.
+      File.write(tape, <<-TAPE)
+        rows 12 cols 100
+        run sh -c "stty raw -echo; printf '\\e[?1000h\\e[?1006h\\e[?2004hREADY\\r\\n'; dd bs=1 count=31 2>/dev/null | od -An -tx1; printf '\\r\\nDONE\\r\\n'"
+        wait "READY" 5s
+        click 0 0
+        paste "x"
+        wait "DONE" 5s
+        expect "DONE"
+        expect "1b"
+        expect "3c"
+        expect "32"
+        expect-exit 0
+        TAPE
+
+      result = Term::VT::CLI::Spec.run(["script", tape])
+
+      result[:status].exit_code?.should eq(0)
+      result[:stderr].should eq("")
+    end
+  end
 end

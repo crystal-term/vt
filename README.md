@@ -98,6 +98,8 @@ Supported directives:
 | `idle SETTLE DEADLINE` | Wait until the screen has not changed for `SETTLE`. |
 | `type "TEXT"` | Send text bytes to the child. |
 | `press KEY` | Send a named key from the supported key table. |
+| `click ROW COL [left\|middle\|right]` | Click at 0-based coordinates (default button `left`). Fails if the child has not enabled mouse tracking. |
+| `paste "TEXT"` | Paste text; wraps in bracketed-paste markers when the child has `?2004` on, otherwise sends raw. |
 | `expect "TEXT"` / `expect-not "TEXT"` | Assert current screen contents without waiting. |
 | `snapshot [FILE]` | Write the current snapshot to `FILE`, or stdout when no file is given. |
 | `resize ROWS COLS` | Resize the PTY and screen. |
@@ -117,9 +119,12 @@ Supported directives:
 - `Term::VT::Session.spawn(command, args, rows:, cols:, env:)` starts a child
   process attached to a controlling TTY, pumps PTY output through a reader
   fiber into a mutex-guarded `Screen`, and provides `send`, `press`, `type`,
-  `wait_for`, `wait_idle`, `wait_exit`, `resize`, and `close`.
+  mouse/paste/focus input helpers, `wait_for`, `wait_idle`, `wait_exit`,
+  `resize`, and `close`.
 - `Term::VT::Keys.sequence(:up)` exposes the harness key-name table used by
   `Session#press`.
+- `Term::VT::Mouse.encode(...)` encodes mouse events for the wire format
+  (SGR or legacy X10) used by `Session` mouse senders.
 - `Term::VT::Width.of(char)` returns terminal cell width `0`, `1`, or `2`.
 - `Term::VT::Style`, `Term::VT::Color`, and `Term::VT::Cell` are value
   structs used by the grid and snapshot APIs.
@@ -138,7 +143,30 @@ screen.find("Done")           # {row: Int32, col: Int32}?
 screen.contains?("Done")      # Bool
 screen.scrollback_text        # Array(String)
 screen.unhandled              # bounded debug list for skipped sequences
+screen.mouse_tracking         # MouseTracking: Off / X10 / Normal / Button / Any
+screen.mouse_encoding         # MouseEncoding: Default / Utf8 / Sgr / Urxvt
+screen.focus_reporting?       # Bool (?1004)
+screen.bracketed_paste?       # Bool (?2004)
 ```
+
+Session input helpers (coordinates are 0-based, matching `cursor` / `find`):
+
+```crystal
+session.mouse_down(row, col, button = :left)
+session.mouse_up(row, col, button = :left)
+session.click(row, col, button = :left)       # down + up
+session.mouse_move(row, col, button = :left)  # motion (bit 32)
+session.scroll(row, col, :up | :down)         # wheel press
+session.paste(text)                           # bracketed when ?2004 is on
+session.focus(true | false)                   # \e[I / \e[O
+```
+
+Mouse senders and `focus` fail loud: they raise `ArgumentError` when the live
+screen has not enabled the corresponding mode (`mouse_tracking` off, or
+`focus_reporting?` false). That is a test bug — clicking into an app that
+never enabled mouse mode. `paste` is the exception: it degrades to a raw send
+when bracketed paste is off. Encoding follows the live screen: SGR when
+`mouse_encoding.sgr?`, otherwise legacy X10 bytes (coordinates capped at 223).
 
 ## Black-box Testing
 
@@ -206,7 +234,7 @@ build support is unavailable.
 | CSI save/restore | `CSI s`, `CSI u`. |
 | CSI reports | `DSR` cursor position query (`CSI 6 n`) emits CPR through `screen.on_report` when set. |
 | SGR | Reset, text flags, flag resets, 8-color, bright-color, indexed color, truecolor, `39`, `49`; semicolon and colon extended-color forms. |
-| Private modes | `?25` cursor visibility, `?7` autowrap, `?6` origin mode (`DECOM`), `?47`/`?1047` alternate screen, `?1049` alternate screen with cursor save/restore. |
+| Private modes | `?25` cursor visibility, `?7` autowrap, `?6` origin mode (`DECOM`), `?47`/`?1047` alternate screen, `?1049` alternate screen with cursor save/restore, mouse tracking `?9`/`?1000`/`?1002`/`?1003`, mouse encoding `?1005`/`?1006`/`?1015`, focus reporting `?1004`, bracketed paste `?2004`. |
 | OSC | `OSC 0` and `OSC 2` set `screen.title`; other OSC commands are consumed. |
 | Strings | DCS/SOS/PM/APC payloads are consumed and discarded until `ST`. |
 
@@ -243,7 +271,8 @@ These are intentionally out of scope and should be added without changing the
 public parser/screen split:
 
 - Left/right margins (`DECSLRM`) and rectangle operations.
-- Mouse protocols.
+- Highlight mouse tracking (`?1001`) and DEC locator mode (left in `unhandled`).
+- Interpreting inbound mouse sequences from the child (events only flow child-ward from `Session`).
 - Grapheme clusters; width-0 combining marks are dropped.
 - Resize reflow; `resize` truncates/pads and clamps the cursor.
 - Windows/ConPTY.

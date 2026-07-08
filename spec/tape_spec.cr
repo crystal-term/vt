@@ -24,6 +24,8 @@ describe Term::VT::CLI::Tape do
       idle 50ms 5s
       type "iHello\\n"
       press escape
+      click 2 4 left
+      paste "clip"
       expect "Hello"
       expect-not "Error"
       snapshot out.txt
@@ -40,13 +42,45 @@ describe Term::VT::CLI::Tape do
     tape.directives[4].as(Term::VT::CLI::Tape::Idle).settle.should eq(50.milliseconds)
     tape.directives[5].as(Term::VT::CLI::Tape::TypeText).text.should eq("iHello\n")
     tape.directives[6].as(Term::VT::CLI::Tape::Press).key.should eq(:escape)
-    tape.directives[7].as(Term::VT::CLI::Tape::Expect).text.should eq("Hello")
-    tape.directives[8].as(Term::VT::CLI::Tape::ExpectNot).text.should eq("Error")
-    tape.directives[9].as(Term::VT::CLI::Tape::Snapshot).file.should eq("out.txt")
-    tape.directives[10].as(Term::VT::CLI::Tape::Snapshot).file.should be_nil
-    tape.directives[11].as(Term::VT::CLI::Tape::Resize).cols.should eq(120)
-    tape.directives[12].should be_a(Term::VT::CLI::Tape::SendExit)
-    tape.directives[13].as(Term::VT::CLI::Tape::ExpectExit).code.should eq(0)
+    click = tape.directives[7].as(Term::VT::CLI::Tape::Click)
+    click.row.should eq(2)
+    click.col.should eq(4)
+    click.button.should eq(:left)
+    tape.directives[8].as(Term::VT::CLI::Tape::Paste).text.should eq("clip")
+    tape.directives[9].as(Term::VT::CLI::Tape::Expect).text.should eq("Hello")
+    tape.directives[10].as(Term::VT::CLI::Tape::ExpectNot).text.should eq("Error")
+    tape.directives[11].as(Term::VT::CLI::Tape::Snapshot).file.should eq("out.txt")
+    tape.directives[12].as(Term::VT::CLI::Tape::Snapshot).file.should be_nil
+    tape.directives[13].as(Term::VT::CLI::Tape::Resize).cols.should eq(120)
+    tape.directives[14].should be_a(Term::VT::CLI::Tape::SendExit)
+    tape.directives[15].as(Term::VT::CLI::Tape::ExpectExit).code.should eq(0)
+  end
+
+  it "defaults click button to left and accepts zero coordinates" do
+    tape = Term::VT::CLI::Tape.parse %(run sh\nclick 0 0\n)
+
+    click = tape.directives[1].as(Term::VT::CLI::Tape::Click)
+    click.row.should eq(0)
+    click.col.should eq(0)
+    click.button.should eq(:left)
+  end
+
+  it "rejects unknown click buttons with line numbers" do
+    expect_raises(Term::VT::CLI::UsageError, "line 2: unknown click button \"side\"") do
+      Term::VT::CLI::Tape.parse "run sh\nclick 1 2 side\n"
+    end
+  end
+
+  it "rejects malformed click coordinates" do
+    expect_raises(Term::VT::CLI::UsageError, "line 2: click row must be a non-negative integer") do
+      Term::VT::CLI::Tape.parse "run sh\nclick -1 0\n"
+    end
+  end
+
+  it "rejects unquoted paste text" do
+    expect_raises(Term::VT::CLI::UsageError, "line 2: paste text must be a double-quoted string") do
+      Term::VT::CLI::Tape.parse "run sh\npaste bare\n"
+    end
   end
 
   it "keeps comments out of tokens but preserves hash characters inside strings" do

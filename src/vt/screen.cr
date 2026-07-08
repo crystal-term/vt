@@ -43,6 +43,10 @@ module Term::VT
     @origin_mode : Bool
     @insert_mode : Bool
     @tab_stops : TabStops
+    @mouse_tracking : MouseTracking
+    @mouse_encoding : MouseEncoding
+    @focus_reporting : Bool
+    @bracketed_paste : Bool
 
     def initialize(rows : Int32 = 24, cols : Int32 = 80, scrollback : Int32 = 1000)
       @rows = {rows, 1}.max
@@ -65,6 +69,10 @@ module Term::VT
       @origin_mode = false
       @insert_mode = false
       @tab_stops = TabStops.new(@cols)
+      @mouse_tracking = MouseTracking::Off
+      @mouse_encoding = MouseEncoding::Default
+      @focus_reporting = false
+      @bracketed_paste = false
       @title = nil
       @bell_count = 0
       @unhandled = [] of String
@@ -279,6 +287,22 @@ module Term::VT
       @alt_screen
     end
 
+    def mouse_tracking : MouseTracking
+      @mouse_tracking
+    end
+
+    def mouse_encoding : MouseEncoding
+      @mouse_encoding
+    end
+
+    def focus_reporting? : Bool
+      @focus_reporting
+    end
+
+    def bracketed_paste? : Bool
+      @bracketed_paste
+    end
+
     def scrollback_text : Array(String)
       @scrollback.map { |row| row_to_text(row) }.to_a
     end
@@ -307,6 +331,10 @@ module Term::VT
       @origin_mode = source.origin_mode_for_copy
       @insert_mode = source.insert_mode_for_copy
       @tab_stops = source.tab_stops_for_copy
+      @mouse_tracking = source.mouse_tracking
+      @mouse_encoding = source.mouse_encoding
+      @focus_reporting = source.focus_reporting?
+      @bracketed_paste = source.bracketed_paste?
       @title = source.title
       @bell_count = source.bell_count
       @unhandled = source.unhandled.dup
