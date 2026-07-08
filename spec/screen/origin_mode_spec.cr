@@ -56,4 +56,21 @@ describe Term::VT::Screen do
     screen.feed("\e[99B")
     screen.cursor.should eq({row: 4, col: 0})
   end
+
+  it "clamps CNL and CPL at the margins when the cursor starts inside them" do
+    screen = Term::VT::Screen.new(rows: 6, cols: 8)
+    screen.feed("\e[2;5r\e[3;3H\e[99E")
+    screen.cursor.should eq({row: 4, col: 0})
+
+    screen.feed("\e[99F")
+    screen.cursor.should eq({row: 1, col: 0})
+  end
+
+  it "homes into the top margin under DECOM when entering the alternate screen" do
+    screen = Term::VT::Screen.new(rows: 6, cols: 8)
+    screen.feed("\e[2;5r\e[?6h\e[3;2H\e[?1049h")
+
+    screen.alt_screen?.should be_true
+    screen.cursor.should eq({row: 1, col: 0})
+  end
 end

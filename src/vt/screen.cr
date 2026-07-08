@@ -213,9 +213,11 @@ module Term::VT
       when 'D'
         move_cursor(row: @cursor_row, col: @cursor_col - pn(params, 0))
       when 'E'
-        move_cursor(row: @cursor_row + pn(params, 0), col: 0)
+        move_cursor_vertical(pn(params, 0))
+        @cursor_col = 0
       when 'F'
-        move_cursor(row: @cursor_row - pn(params, 0), col: 0)
+        move_cursor_vertical(-pn(params, 0))
+        @cursor_col = 0
       when 'G'
         move_cursor(row: @cursor_row, col: one_based(params, 0) - 1)
       when 'd'
@@ -558,7 +560,11 @@ module Term::VT
       row = current_row
       count.times { row.insert(@cursor_col, Cell.blank(@style)) }
       row.pop(count)
-      clear_wide_pair_at(@cursor_row, @cols - 1)
+      # Only clear an orphaned wide lead on the last column (no room for a
+      # continuation). A complete pair ending in a continuation must stay.
+      if row[@cols - 1].width == 2
+        row[@cols - 1] = Cell.blank
+      end
     end
 
     private def delete_chars(count : Int32) : Nil
@@ -688,7 +694,11 @@ module Term::VT
 
     private def report_cursor_position : Nil
       if callback = @on_report
-        callback.call("\e[#{@cursor_row + 1};#{@cursor_col + 1}R".to_slice)
+        # Under DECOM, CPR reports origin-relative row (xterm/VT100); column
+        # stays absolute.
+        row = @origin_mode ? (@cursor_row - @scroll_top) + 1 : @cursor_row + 1
+        col = @cursor_col + 1
+        callback.call("\e[#{row};#{col}R".to_slice.dup)
       end
     end
 

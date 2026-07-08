@@ -99,9 +99,19 @@ module Term::VT
       send(Mouse.encode(row, col, button, release: true, encoding: encoding))
     end
 
-    # Motion event (meaningful under Button/Any tracking). Encodes bit 32.
+    # Motion event (bit 32). Requires button-event (`?1002`) or any-event
+    # (`?1003`) tracking — X10/Normal alone raise ArgumentError.
     def mouse_move(row : Int32, col : Int32, button : MouseButton = MouseButton::Left) : self
-      send_mouse(row, col, button, release: false, motion: true)
+      encoding = @mutex.synchronize do
+        tracking = @screen.mouse_tracking
+        unless tracking.button? || tracking.any?
+          raise ArgumentError.new(
+            "mouse motion requires button-event or any-event tracking (CSI ?1002h / ?1003h)"
+          )
+        end
+        @screen.mouse_encoding
+      end
+      send(Mouse.encode(row, col, button, release: false, motion: true, encoding: encoding))
     end
 
     # Wheel press (buttons 64/65). Pass `MouseButton::WheelUp` or `WheelDown`.

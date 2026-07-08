@@ -81,7 +81,8 @@ module Term::VT
 
     private def self.encode_sgr(code : Int32, x : Int32, y : Int32, release : Bool) : Bytes
       final = release ? 'm' : 'M'
-      "\e[<#{code};#{x};#{y}#{final}".to_slice
+      # Own the buffer so callers may retain the Bytes past the temporary String.
+      "\e[<#{code};#{x};#{y}#{final}".to_slice.dup
     end
 
     private def self.encode_x10(code : Int32, x : Int32, y : Int32, release : Bool) : Bytes

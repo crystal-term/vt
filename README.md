@@ -155,7 +155,7 @@ Session input helpers (coordinates are 0-based, matching `cursor` / `find`):
 session.mouse_down(row, col, MouseButton::Left)
 session.mouse_up(row, col, MouseButton::Left)
 session.click(row, col, MouseButton::Left)       # down + up, one mode snapshot
-session.mouse_move(row, col, MouseButton::Left)  # motion (bit 32)
+session.mouse_move(row, col, MouseButton::Left)  # motion (bit 32; needs ?1002/?1003)
 session.scroll(row, col, MouseButton::WheelUp)   # wheel press (WheelUp / WheelDown)
 session.paste(text)                              # bracketed when ?2004 is on
 session.focus(true | false)                      # \e[I / \e[O
@@ -163,9 +163,11 @@ session.focus(true | false)                      # \e[I / \e[O
 
 Mouse senders and `focus` fail loud: they raise `ArgumentError` when the live
 screen has not enabled the corresponding mode (`mouse_tracking` off, or
-`focus_reporting?` false). That is a test bug — clicking into an app that
-never enabled mouse mode. `paste` is the exception: it degrades to a raw send
-when bracketed paste is off.
+`focus_reporting?` false). `mouse_move` is stricter still — it requires
+button-event (`?1002`) or any-event (`?1003`) tracking; X10/Normal alone
+raise. That is a test bug — clicking into an app that never enabled mouse
+mode. `paste` is the exception: it degrades to a raw send when bracketed
+paste is off.
 
 Wire encoding follows the live screen: **only `mouse_encoding.sgr?` changes
 the encoder** (SGR sequences). `Default`, `Utf8`, and `Urxvt` all send legacy

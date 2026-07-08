@@ -94,6 +94,27 @@ describe "Session mouse / paste / focus senders" do
     end
   end
 
+  it "raises mouse_move unless button-event or any-event tracking is on" do
+    Term::VT::Spec.with_pty do
+      session = Term::VT::Session.spawn(
+        "sh",
+        ["-c", %(stty raw -echo; printf '\\033[?1000hREADY\\r\\n'; sleep 30)],
+        rows: 5,
+        cols: 20,
+      )
+      begin
+        session.wait_for("READY", deadline: 5.seconds)
+        session.screen.mouse_tracking.should eq(Term::VT::MouseTracking::Normal)
+
+        expect_raises(ArgumentError, /button-event or any-event/) do
+          session.mouse_move(0, 0)
+        end
+      ensure
+        session.close
+      end
+    end
+  end
+
   it "raises when focus is sent without focus reporting enabled" do
     Term::VT::Spec.with_pty do
       session = Term::VT::Session.spawn("sh", ["-c", "read line"], rows: 5, cols: 20)

@@ -75,9 +75,8 @@ module Term::VT
       save_cursor if save && !@alt_screen
       @alt_screen = true
       @alternate = build_grid if clear
-      @cursor_row = 0
-      @cursor_col = 0
-      @pending_wrap = false
+      # DECOM: home into the top margin, not absolute (0,0).
+      home_cursor
     end
 
     private def leave_alt_screen(restore : Bool) : Nil

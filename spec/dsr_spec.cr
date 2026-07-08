@@ -24,6 +24,17 @@ describe "DSR cursor position report" do
     String.new(reported).should eq("\e[3;4R")
   end
 
+  it "reports origin-relative row for CPR under DECOM" do
+    reported = Bytes.empty
+    screen = Term::VT::Screen.new(rows: 6, cols: 8)
+    screen.on_report = ->(bytes : Bytes) { reported = bytes.dup }
+
+    # Scroll region rows 2-5 (1-based); DECOM on; CUP 1;3 → absolute (1, 2)
+    screen.feed("\e[2;5r\e[?6h\e[1;3H\e[6n")
+
+    String.new(reported).should eq("\e[1;3R")
+  end
+
   it "wires Session DSR reports back to the child process" do
     Term::VT::Spec.with_pty do
       session = Term::VT::Session.spawn(
