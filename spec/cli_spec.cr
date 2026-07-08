@@ -142,6 +142,30 @@ describe "term-vt CLI" do
     end
   end
 
+  it "reflows soft-wrapped content on resize when the tape enables reflow" do
+    Term::VT::Spec.with_pty do
+      tape = File.tempname("term-vt-cli-reflow", ".tape")
+      # Print 10 A's on a 10-col screen, then narrow to 5 with reflow on.
+      File.write(tape, <<-TAPE)
+        rows 4
+        cols 10
+        reflow
+        run sh -c "printf 'AAAAAAAAAA'; sleep 30"
+        wait "AAAAAAAAAA" 5s
+        resize 4 5
+        expect "AAAAA"
+        snapshot
+        send-exit
+        TAPE
+
+      result = Term::VT::CLI::Spec.run(["script", tape])
+
+      result[:status].exit_code?.should eq(0)
+      # After reflow, snapshot shows two rows of five A's.
+      result[:stdout].should contain("AAAAA\nAAAAA")
+    end
+  end
+
   it "runs a tape using click and paste directives" do
     Term::VT::Spec.with_pty do
       tape = File.tempname("term-vt-cli-click-paste", ".tape")

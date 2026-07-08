@@ -35,8 +35,9 @@ CLI or TUI from the shell without writing Crystal code.
 
 Global flags: `--rows N` (default `24`), `--cols N` (default `80`),
 `--timeout SPAN` (default `10s`, accepts `500ms`, `5s`, `1m`), `--styled`,
-and `--quiet`. `--quiet` suppresses stdout snapshot emission; failure
-diagnostics still go to stderr.
+`--quiet`, and `--reflow`. `--quiet` suppresses stdout snapshot emission;
+failure diagnostics still go to stderr. `--reflow` enables soft-wrap resize
+reflow on the primary screen and scrollback (default remains truncate/pad).
 
 | Verb | Purpose |
 | --- | --- |
@@ -66,13 +67,14 @@ bin/term-vt script examples/shell.tape
 Tapes are line-based. `#` starts a comment outside double-quoted strings.
 Strings must be double-quoted and support Crystal-style escapes such as
 `\n`, `\t`, `\e`, `\"`, `\\`, `\x21`, and `\u{2713}`. A tape has exactly
-one `run`; `rows` and `cols` may appear before it, and every action after
-that runs against the same session. `wait` and `idle` always require explicit
-deadlines.
+one `run`; `rows`, `cols`, and `reflow` may appear before it, and every action
+after that runs against the same session. `wait` and `idle` always require
+explicit deadlines.
 
 ```text
 rows 24
 cols 80
+reflow
 run vim --clean -u NONE
 wait "~" 5s
 idle 50ms 5s
@@ -93,6 +95,7 @@ Supported directives:
 | Directive | Meaning |
 | --- | --- |
 | `rows N`, `cols N` | Initial screen size before `run`. |
+| `reflow` | Enable soft-wrap resize reflow for the session (before `run`). |
 | `run CMD ARGS...` | Spawn the one child command for the tape. |
 | `wait "TEXT" DEADLINE` | Wait until the screen contains text. |
 | `idle SETTLE DEADLINE` | Wait until the screen has not changed for `SETTLE`. |
@@ -116,11 +119,11 @@ Supported directives:
 - `Term::VT::PTY.open(rows, cols)` allocates a POSIX master/slave PTY pair,
   applies the initial winsize, supports `resize`, and closes both ends
   idempotently.
-- `Term::VT::Session.spawn(command, args, rows:, cols:, env:)` starts a child
-  process attached to a controlling TTY, pumps PTY output through a reader
-  fiber into a mutex-guarded `Screen`, and provides `send`, `press`, `type`,
-  mouse/paste/focus input helpers, `wait_for`, `wait_idle`, `wait_exit`,
-  `resize`, and `close`.
+- `Term::VT::Session.spawn(command, args, rows:, cols:, reflow:, env:)` starts a
+  child process attached to a controlling TTY, pumps PTY output through a
+  reader fiber into a mutex-guarded `Screen`, and provides `send`, `press`,
+  `type`, mouse/paste/focus input helpers, `wait_for`, `wait_idle`,
+  `wait_exit`, `resize`, and `close`.
 - `Term::VT::Keys.sequence(:up)` exposes the harness key-name table used by
   `Session#press`.
 - `Term::VT::Mouse.encode(...)` encodes mouse events for the wire format
@@ -132,6 +135,7 @@ Supported directives:
 Useful screen methods:
 
 ```crystal
+screen = Term::VT::Screen.new(rows: 24, cols: 80, reflow: false)
 screen.feed(bytes_or_string)  # => self
 screen.row_text(0)            # visible row, trailing whitespace trimmed
 screen.rows_text              # Array(String)
@@ -142,12 +146,20 @@ screen.cell(row, col)         # Term::VT::Cell
 screen.find("Done")           # {row: Int32, col: Int32}?
 screen.contains?("Done")      # Bool
 screen.scrollback_text        # Array(String)
+screen.reflow?                # Bool — soft-wrap resize reflow enabled?
 screen.unhandled              # bounded debug list for skipped sequences
 screen.mouse_tracking         # MouseTracking: Off / X10 / Normal / Button / Any
 screen.mouse_encoding         # MouseEncoding: Default / Utf8 / Sgr / Urxvt
 screen.focus_reporting?       # Bool (?1004)
 screen.bracketed_paste?       # Bool (?2004)
 ```
+
+Resize contract: default (`reflow: false`) truncates/pads the grid and clamps
+the cursor. With `reflow: true`, `resize` re-wraps the primary buffer and
+scrollback at the new width (soft-wrapped runs join; hard newlines never do),
+never reflows the alternate screen, and restores the cursor to its logical
+character offset (clamped to the end of the logical line when the old position
+was inside trailing blanks that joining stripped).
 
 Session input helpers (coordinates are 0-based, matching `cursor` / `find`):
 
@@ -290,5 +302,4 @@ public parser/screen split:
 - Interpreting inbound mouse sequences from the child (events only flow child-ward from `Session`).
 - Grapheme clustering (UAX #29): zero-width marks attach to the preceding
   cell, but ZWJ sequences occupy multiple cells and VS16 does not widen.
-- Resize reflow; `resize` truncates/pads and clamps the cursor.
 - Windows/ConPTY.

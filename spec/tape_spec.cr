@@ -2,15 +2,17 @@ require "./spec_helper"
 require "../src/cli/tape"
 
 describe Term::VT::CLI::Tape do
-  it "parses rows, cols, and run directives" do
-    tape = Term::VT::CLI::Tape.parse(%(rows 24 cols 80\nrun sh -c "printf hi"\n))
+  it "parses rows, cols, reflow, and run directives" do
+    tape = Term::VT::CLI::Tape.parse(%(rows 24 cols 80 reflow\nrun sh -c "printf hi"\n))
 
     rows = tape.directives[0].as(Term::VT::CLI::Tape::Rows)
     cols = tape.directives[1].as(Term::VT::CLI::Tape::Cols)
-    run = tape.directives[2].as(Term::VT::CLI::Tape::Run)
+    reflow = tape.directives[2]
+    run = tape.directives[3].as(Term::VT::CLI::Tape::Run)
 
     rows.value.should eq(24)
     cols.value.should eq(80)
+    reflow.should be_a(Term::VT::CLI::Tape::Reflow)
     run.command.should eq("sh")
     run.args.should eq(["-c", "printf hi"])
   end

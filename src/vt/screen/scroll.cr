@@ -23,8 +23,8 @@ module Term::VT
     private def scroll_up(count : Int32) : Nil
       full_region = full_scroll_region?
       count.times do
-        removed = shift_region_up(@scroll_top, @scroll_bottom)
-        push_scrollback(removed) if full_region && !@alt_screen
+        removed, removed_wrap = shift_region_up(@scroll_top, @scroll_bottom)
+        push_scrollback(removed, removed_wrap) if full_region && !@alt_screen
       end
     end
 
@@ -46,25 +46,36 @@ module Term::VT
       count.times { shift_region_up(@cursor_row, @scroll_bottom) }
     end
 
-    # Content moves toward lower indices; blank fills `bottom`. Returns the removed top row.
-    private def shift_region_up(top : Int32, bottom : Int32) : Array(Cell)
+    # Content moves toward lower indices; blank fills `bottom`. Returns the removed top row and wrap flag.
+    private def shift_region_up(top : Int32, bottom : Int32) : Tuple(Array(Cell), Bool)
       removed = grid.delete_at(top)
       grid.insert(bottom, blank_row)
-      removed
+      removed_wrap = false
+      unless @alt_screen
+        removed_wrap = @primary_wrapped.delete_at(top)
+        @primary_wrapped.insert(bottom, false)
+      end
+      {removed, removed_wrap}
     end
 
     # Content moves toward higher indices; blank fills `top`.
     private def shift_region_down(top : Int32, bottom : Int32) : Nil
       grid.insert(top, blank_row)
       grid.delete_at(bottom + 1)
+      unless @alt_screen
+        @primary_wrapped.insert(top, false)
+        @primary_wrapped.delete_at(bottom + 1)
+      end
     end
 
-    private def push_scrollback(row : Array(Cell)) : Nil
+    private def push_scrollback(row : Array(Cell), wrapped : Bool = false) : Nil
       return if @scrollback_limit == 0
 
       @scrollback << row
+      @scrollback_wrapped << wrapped
       while @scrollback.size > @scrollback_limit
         @scrollback.shift
+        @scrollback_wrapped.shift
       end
     end
 

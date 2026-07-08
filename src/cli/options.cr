@@ -34,6 +34,7 @@ module Term::VT::CLI
     property timeout : Time::Span
     property styled : Bool
     property quiet : Bool
+    property reflow : Bool
 
     def initialize(
       @rows : Int32 = 24,
@@ -41,6 +42,7 @@ module Term::VT::CLI
       @timeout : Time::Span = 10.seconds,
       @styled : Bool = false,
       @quiet : Bool = false,
+      @reflow : Bool = false,
     )
     end
   end
@@ -222,6 +224,9 @@ module Term::VT::CLI
           index + 1
         when "--quiet"
           global.quiet = true
+          index + 1
+        when "--reflow"
+          global.reflow = true
           index + 1
         else
           nil

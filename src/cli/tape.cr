@@ -35,6 +35,9 @@ module Term::VT::CLI
       end
     end
 
+    class Reflow < Directive
+    end
+
     class Run < Directive
       getter command : String
       getter args : Array(String)
@@ -150,7 +153,7 @@ module Term::VT::CLI
 
     private class Parser
       KEYWORDS = {
-        "rows", "cols", "run", "wait", "idle", "type", "press",
+        "rows", "cols", "reflow", "run", "wait", "idle", "type", "press",
         "click", "paste", "expect", "expect-not", "snapshot", "resize",
         "send-exit", "expect-exit",
       }
@@ -178,6 +181,10 @@ module Term::VT::CLI
               reject_after_run("cols", line_number) if saw_run
               value, index = read_positive_int(tokens, index + 1, line_number, "column count")
               directives << Cols.new(line_number, value)
+            when "reflow"
+              reject_after_run("reflow", line_number) if saw_run
+              directives << Reflow.new(line_number)
+              index += 1
             when "run"
               raise error(line_number, "duplicate run directive") if saw_run
 

@@ -34,7 +34,7 @@ module Term::VT::CLI
     end
 
     private def execute_run(command : RunCommand) : Nil
-      session = spawn_session(command.command, command.args, @global.rows, @global.cols)
+      session = spawn_session(command.command, command.args, @global.rows, @global.cols, @global.reflow)
       begin
         status = wait_exit(session, @global.timeout)
         screen = session.screen
@@ -60,7 +60,7 @@ module Term::VT::CLI
     end
 
     private def execute_snapshot(command : SnapshotCommand) : Nil
-      session = spawn_session(command.command, command.args, @global.rows, @global.cols)
+      session = spawn_session(command.command, command.args, @global.rows, @global.cols, @global.reflow)
       begin
         if settle = command.idle
           wait_idle(session, settle, @global.timeout)
@@ -97,6 +97,7 @@ module Term::VT::CLI
     private def execute_tape(tape : Tape) : Nil
       rows = @global.rows
       cols = @global.cols
+      reflow = @global.reflow
       session = nil
       status = nil
 
@@ -107,8 +108,10 @@ module Term::VT::CLI
             rows = directive.value
           when Tape::Cols
             cols = directive.value
+          when Tape::Reflow
+            reflow = true
           when Tape::Run
-            session = spawn_session(directive.command, directive.args, rows, cols)
+            session = spawn_session(directive.command, directive.args, rows, cols, reflow)
           when Tape::Wait
             active = require_session(session, directive)
             wait_for(active, directive.text, directive.deadline, directive.line)
@@ -167,8 +170,8 @@ module Term::VT::CLI
       end
     end
 
-    private def spawn_session(command : String, args : Array(String), rows : Int32, cols : Int32) : Term::VT::Session
-      Term::VT::Session.spawn(command, args, rows: rows, cols: cols)
+    private def spawn_session(command : String, args : Array(String), rows : Int32, cols : Int32, reflow : Bool = false) : Term::VT::Session
+      Term::VT::Session.spawn(command, args, rows: rows, cols: cols, reflow: reflow)
     rescue ex : Exception
       raise UsageError.new("failed to spawn #{command.inspect}: #{ex.message}")
     end

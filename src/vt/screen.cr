@@ -35,6 +35,9 @@ module Term::VT
     @primary : Array(Array(Cell))
     @alternate : Array(Array(Cell))
     @scrollback : Deque(Array(Cell))
+    # Per-row soft-wrap flags for primary + scrollback (alt never reflows).
+    @primary_wrapped : Array(Bool)
+    @scrollback_wrapped : Deque(Bool)
     @parser : Parser?
     @style : Style
     @saved_primary : SavedCursor
@@ -48,14 +51,18 @@ module Term::VT
     @mouse_encoding : MouseEncoding
     @focus_reporting : Bool
     @bracketed_paste : Bool
+    @reflow : Bool
 
-    def initialize(rows : Int32 = 24, cols : Int32 = 80, scrollback : Int32 = 1000)
+    def initialize(rows : Int32 = 24, cols : Int32 = 80, scrollback : Int32 = 1000, *, reflow : Bool = false)
       @rows = {rows, 1}.max
       @cols = {cols, 1}.max
       @scrollback_limit = {scrollback, 0}.max
+      @reflow = reflow
       @primary = build_grid
       @alternate = build_grid
       @scrollback = Deque(Array(Cell)).new
+      @primary_wrapped = Array.new(@rows, false)
+      @scrollback_wrapped = Deque(Bool).new
       @cursor_row = 0
       @cursor_col = 0
       @cursor_visible = true
@@ -283,15 +290,36 @@ module Term::VT
     end
 
     def resize(rows : Int32, cols : Int32) : self
+      new_rows = {rows, 1}.max
+      new_cols = {cols, 1}.max
       old_cols = @cols
-      @rows = {rows, 1}.max
-      @cols = {cols, 1}.max
-      @primary = resize_grid(@primary)
-      @alternate = resize_grid(@alternate)
+      old_rows = @rows
+
+      if @reflow && (new_cols != old_cols || new_rows != old_rows)
+        if new_cols != old_cols
+          reflow_primary(new_rows, new_cols)
+        else
+          resize_primary_rows(new_rows)
+        end
+        @alternate = resize_grid_to(@alternate, new_rows, new_cols)
+        @rows = new_rows
+        @cols = new_cols
+        if @alt_screen
+          clamp_cursor
+          @pending_wrap = false if @cursor_col < @cols - 1
+        end
+      else
+        @rows = new_rows
+        @cols = new_cols
+        @primary = resize_grid(@primary)
+        @primary_wrapped = resize_wrap_flags(@primary_wrapped)
+        @alternate = resize_grid(@alternate)
+        clamp_cursor
+        @pending_wrap = false if @cursor_col < @cols - 1
+      end
+
       reset_scroll_region
       @tab_stops.resize(old_cols, @cols)
-      clamp_cursor
-      @pending_wrap = false if @cursor_col < @cols - 1
       self
     end
 
@@ -331,6 +359,17 @@ module Term::VT
       @alt_screen
     end
 
+    def reflow? : Bool
+      @reflow
+    end
+
+    # True when the primary row soft-wraps into the next row (for specs/debug).
+    def row_wrapped?(row : Int32) : Bool
+      return false if row < 0 || row >= @primary_wrapped.size
+
+      @primary_wrapped[row]
+    end
+
     def mouse_tracking : MouseTracking
       @mouse_tracking
     end
@@ -352,7 +391,7 @@ module Term::VT
     end
 
     def dup : self
-      copy = Screen.new(@rows, @cols, @scrollback_limit)
+      copy = Screen.new(@rows, @cols, @scrollback_limit, reflow: @reflow)
       copy.copy_from(self)
       copy
     end
@@ -361,6 +400,9 @@ module Term::VT
       @primary = clone_grid(source.primary_for_copy)
       @alternate = clone_grid(source.alternate_for_copy)
       @scrollback = source.scrollback_for_copy
+      @primary_wrapped = source.primary_wrapped_for_copy
+      @scrollback_wrapped = source.scrollback_wrapped_for_copy
+      @reflow = source.reflow?
       @cursor_row = source.cursor_row_for_copy
       @cursor_col = source.cursor_col_for_copy
       @cursor_visible = source.cursor_visible?
@@ -445,6 +487,16 @@ module Term::VT
       @tab_stops.dup
     end
 
+    protected def primary_wrapped_for_copy
+      @primary_wrapped.dup
+    end
+
+    protected def scrollback_wrapped_for_copy
+      copy = Deque(Bool).new
+      @scrollback_wrapped.each { |flag| copy << flag }
+      copy
+    end
+
     private def build_grid : Array(Array(Cell))
       Array.new(@rows) { blank_row }
     end
@@ -498,9 +550,22 @@ module Term::VT
     end
 
     private def wrap_pending : Nil
+      mark_row_wrapped(@cursor_row) unless @alt_screen
       @pending_wrap = false
       @cursor_col = 0
       index
+    end
+
+    private def mark_row_wrapped(row : Int32) : Nil
+      return unless row >= 0 && row < @primary_wrapped.size
+
+      @primary_wrapped[row] = true
+    end
+
+    private def clear_row_wrapped(row : Int32) : Nil
+      return unless row >= 0 && row < @primary_wrapped.size
+
+      @primary_wrapped[row] = false
     end
 
     private def clear_wide_pair_at(row : Int32, col : Int32) : Nil
@@ -527,6 +592,7 @@ module Term::VT
         (0...@rows).each { |row| erase_row(row) }
       when 3
         @scrollback.clear
+        @scrollback_wrapped.clear
       else
         record_unhandled("CSI #{mode}J")
       end
@@ -547,6 +613,7 @@ module Term::VT
 
     private def erase_row(row : Int32) : Nil
       erase_row_range(row, 0, @cols - 1)
+      clear_row_wrapped(row) unless @alt_screen
     end
 
     private def erase_row_range(row : Int32, first : Int32, last : Int32) : Nil
@@ -581,7 +648,7 @@ module Term::VT
 
     private def reset_screen_preserving_title : Nil
       title = @title
-      initialize(@rows, @cols, @scrollback_limit)
+      initialize(@rows, @cols, @scrollback_limit, reflow: @reflow)
       @title = title
     end
 
@@ -734,16 +801,28 @@ module Term::VT
     end
 
     private def resize_grid(source : Array(Array(Cell))) : Array(Array(Cell))
-      rows = source.first(@rows).map do |row|
-        resized = row.first(@cols)
-        resized += Array.new(@cols - resized.size) { Cell.blank } if resized.size < @cols
+      resize_grid_to(source, @rows, @cols)
+    end
+
+    private def resize_grid_to(source : Array(Array(Cell)), rows : Int32, cols : Int32) : Array(Array(Cell))
+      resized_rows = source.first(rows).map do |row|
+        resized = row.first(cols)
+        resized += Array.new(cols - resized.size) { Cell.blank } if resized.size < cols
         resized
       end
 
-      while rows.size < @rows
-        rows << blank_row
+      while resized_rows.size < rows
+        resized_rows << Array.new(cols) { Cell.blank }
       end
-      rows
+      resized_rows
+    end
+
+    private def resize_wrap_flags(source : Array(Bool)) : Array(Bool)
+      flags = source.first(@rows)
+      while flags.size < @rows
+        flags << false
+      end
+      flags
     end
 
     private def record_unhandled(description : String) : Nil
@@ -756,6 +835,7 @@ module Term::VT
 end
 
 require "./screen/scroll"
+require "./screen/reflow"
 require "./screen/cursor"
 require "./screen/modes"
 require "./screen/tabs"

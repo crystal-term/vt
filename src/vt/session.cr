@@ -40,6 +40,7 @@ module Term::VT
       *,
       rows : Int32 = 24,
       cols : Int32 = 80,
+      reflow : Bool = false,
       env : Process::Env = nil,
       clear_env : Bool = false,
       chdir : Path | String? = nil,
@@ -50,7 +51,7 @@ module Term::VT
       begin
         process = CTTYShim.spawn(command, argv, pty, env, clear_env, chdir)
         pty.slave.close
-        new(pty, process, Screen.new(rows: rows, cols: cols))
+        new(pty, process, Screen.new(rows: rows, cols: cols, reflow: reflow))
       rescue ex
         pty.close
         raise ex
