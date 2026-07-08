@@ -302,4 +302,4 @@ public parser/screen split:
 - Interpreting inbound mouse sequences from the child (events only flow child-ward from `Session`).
 - Grapheme clustering (UAX #29): zero-width marks attach to the preceding
   cell, but ZWJ sequences occupy multiple cells and VS16 does not widen.
-- Windows/ConPTY.
+- Windows/ConPTY (core compiles on Windows; PTY harness POSIX-only — see plan 033 findings).
