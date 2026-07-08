@@ -197,13 +197,16 @@ build support is unavailable.
 | --- | --- |
 | UTF-8 | Ground-state UTF-8, including split code points and invalid-byte replacement. |
 | C0 | `BEL`, `BS`, `HT`, `LF`/`VT`/`FF`, `CR`, `CAN`, `SUB`, `ESC`. |
-| ESC | `DECSC`/`DECRC` (`ESC 7`/`ESC 8`), `IND`, `RI`, `NEL`, `RIS`, charset designations consumed and ignored. |
+| ESC | `DECSC`/`DECRC` (`ESC 7`/`ESC 8`), `IND`, `RI`, `NEL`, `HTS` (`ESC H`), `RIS`, charset designations consumed and ignored. |
 | CSI cursor | `CUU`, `CUD`, `CUF`, `CUB`, `CNL`, `CPL`, `CHA`, `VPA`, `CUP`, `HVP`. |
 | CSI erase/edit | `ED` `0`/`1`/`2`/`3`, `EL` `0`/`1`/`2`, `ICH`, `DCH`, `ECH`, `IL`, `DL`, `SU`, `SD`. |
+| CSI scroll region | `DECSTBM` (`CSI Pt ; Pb r`); defaults and full-screen reset; invalid regions ignored. |
+| CSI tab stops | `TBC` (`CSI g` params `0`/`3`), `CHT` (`CSI I`), `CBT` (`CSI Z`); `HT` uses the stop table. |
+| CSI modes | ANSI `SM`/`RM` mode `4` (`IRM` insert/replace). |
 | CSI save/restore | `CSI s`, `CSI u`. |
 | CSI reports | `DSR` cursor position query (`CSI 6 n`) emits CPR through `screen.on_report` when set. |
 | SGR | Reset, text flags, flag resets, 8-color, bright-color, indexed color, truecolor, `39`, `49`; semicolon and colon extended-color forms. |
-| Private modes | `?25` cursor visibility, `?7` autowrap, `?47`/`?1047` alternate screen, `?1049` alternate screen with cursor save/restore. |
+| Private modes | `?25` cursor visibility, `?7` autowrap, `?6` origin mode (`DECOM`), `?47`/`?1047` alternate screen, `?1049` alternate screen with cursor save/restore. |
 | OSC | `OSC 0` and `OSC 2` set `screen.title`; other OSC commands are consumed. |
 | Strings | DCS/SOS/PM/APC payloads are consumed and discarded until `ST`. |
 
@@ -239,10 +242,7 @@ Example:
 These are intentionally out of scope and should be added without changing the
 public parser/screen split:
 
-- Scroll regions (`DECSTBM`).
-- Tab-stop set/clear (`HTS`, `TBC`); fixed 8-column tab stops are supported.
-- Insert mode (`IRM`).
-- Origin mode (`DECOM`).
+- Left/right margins (`DECSLRM`) and rectangle operations.
 - Mouse protocols.
 - Grapheme clusters; width-0 combining marks are dropped.
 - Resize reflow; `resize` truncates/pads and clamps the cursor.
