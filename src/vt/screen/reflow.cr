@@ -230,8 +230,15 @@ module Term::VT
 
       @primary.each_with_index do |row, i|
         if i == @cursor_row
+          # Offset is the logical insertion point. Pending-wrap sits *after* the
+          # character under the cursor so a later reflow can restore pending;
+          # a plain CUP onto the same cell keeps the pre-character offset.
           prefix = cells_before_col(row, @cursor_col)
-          return {line_idx, offset_in_line + display_width(prefix)}
+          offset = offset_in_line + display_width(prefix)
+          if @pending_wrap
+            offset += cell_display_width(row[@cursor_col])
+          end
+          return {line_idx, offset}
         end
 
         cells = cells_for_join(row, @primary_wrapped[i])
@@ -269,7 +276,14 @@ module Term::VT
     end
 
     private def display_width(cells : Array(Cell)) : Int32
-      cells.sum { |cell| w = cell.width.to_i; w < 1 ? 1 : w }
+      cells.sum { |cell| cell_display_width(cell) }
+    end
+
+    private def cell_display_width(cell : Cell) : Int32
+      return 0 if cell.continuation
+
+      width = cell.width.to_i
+      width < 1 ? 1 : width
     end
 
     private def restore_cursor_logical(
@@ -318,6 +332,7 @@ module Term::VT
       remaining = offset
       target_abs = phys.last
       target_col = 0
+      pending = false
 
       phys.each_with_index do |abs_i, i|
         row = abs_rows[abs_i]
@@ -330,15 +345,52 @@ module Term::VT
                end
         span = new_cols if !is_last && span == 0
 
-        if remaining < span || is_last
-          col = remaining
-          col = span if col > span
-          col = 0 if col < 0
+        if remaining < span
           target_abs = abs_i
-          target_col = col.clamp(0, new_cols - 1)
+          target_col = remaining.clamp(0, new_cols - 1)
+          pending = false
           break
         end
 
+        if remaining == span
+          if is_last
+            # Insertion point at end of logical line content.
+            target_abs = abs_i
+            if span == 0
+              target_col = 0
+              pending = false
+            elsif span >= new_cols
+              # Line fills the row: seat on last column with pending wrap.
+              target_col = new_cols - 1
+              pending = true
+            else
+              # Room remains on the row: sit just after the last character.
+              target_col = span
+              pending = false
+            end
+            break
+          else
+            # End of a soft-wrapped physical row → start of the next.
+            remaining = 0
+            next
+          end
+        end
+
+        # remaining > span
+        if is_last
+          target_abs = abs_i
+          if span == 0
+            target_col = 0
+            pending = false
+          elsif span >= new_cols
+            target_col = new_cols - 1
+            pending = false
+          else
+            target_col = span
+            pending = false
+          end
+          break
+        end
         remaining -= span
       end
 
@@ -350,18 +402,8 @@ module Term::VT
       else
         @cursor_row = (target_abs - sb).clamp(0, new_rows - 1)
         @cursor_col = target_col.clamp(0, new_cols - 1)
-        # Pending wrap only when the cursor sits on the last column of a row
-        # filled through that column (same as after autowrap print).
-        @pending_wrap = @cursor_col == new_cols - 1 &&
-                        row_filled_through?(@primary[@cursor_row], @cursor_col)
+        @pending_wrap = pending
       end
-    end
-
-    private def row_filled_through?(row : Array(Cell), col : Int32) : Bool
-      return false if col < 0 || col >= row.size
-
-      cell = row[col]
-      !cell.blank? || cell.continuation
     end
   end
 end

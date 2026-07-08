@@ -613,13 +613,16 @@ module Term::VT
 
     private def erase_row(row : Int32) : Nil
       erase_row_range(row, 0, @cols - 1)
-      clear_row_wrapped(row) unless @alt_screen
     end
 
     private def erase_row_range(row : Int32, first : Int32, last : Int32) : Nil
-      first.clamp(0, @cols - 1).upto(last.clamp(0, @cols - 1)) do |col|
+      lo = first.clamp(0, @cols - 1)
+      hi = last.clamp(0, @cols - 1)
+      lo.upto(hi) do |col|
         grid[row][col] = Cell.blank(@style)
       end
+      # Soft-wrap is broken once the last column is erased (full or partial EL/ED).
+      clear_row_wrapped(row) if !@alt_screen && hi >= @cols - 1 && lo <= @cols - 1
     end
 
     private def insert_chars(count : Int32) : Nil

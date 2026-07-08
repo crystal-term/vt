@@ -91,7 +91,8 @@ describe "Screen reflow" do
 
     screen.resize(rows: 3, cols: 8)
     screen.row_text(0).should eq("abcd")
-    screen.cursor.should eq({row: 0, col: 3})
+    # Insertion point was after the line; with room it sits past the content.
+    screen.cursor.should eq({row: 0, col: 4})
 
     screen.resize(rows: 3, cols: 4)
     screen.row_text(0).should eq("abcd")
@@ -130,5 +131,34 @@ describe "Screen reflow" do
     screen.scrollback_text.should be_empty
     screen.row_text(0).should eq("AAAABBBB")
     screen.row_text(1).should eq("CCCC")
+  end
+
+  it "does not invent pending-wrap after CUP to the last column and reflow" do
+    screen = Term::VT::Screen.new(rows: 3, cols: 8, reflow: true)
+    screen.feed("abcd\e[1;4H")
+    screen.cursor.should eq({row: 0, col: 3})
+
+    screen.resize(rows: 3, cols: 4)
+
+    screen.cursor.should eq({row: 0, col: 3})
+    # Next printable overwrites at the cursor, not wrap-pending onto the next row.
+    screen.feed("X")
+    screen.row_text(0).should eq("abcX")
+    screen.row_text(1).should eq("")
+  end
+
+  it "clears soft-wrap when EL erases through the last column" do
+    screen = Term::VT::Screen.new(rows: 3, cols: 4, reflow: true)
+    screen.feed("AAAABBBB")
+    screen.row_wrapped?(0).should be_true
+
+    screen.feed("\e[1;1H\e[K")
+    screen.row_text(0).should eq("")
+    screen.row_wrapped?(0).should be_false
+
+    screen.resize(rows: 3, cols: 8)
+    # Blanked row is its own logical line; must not join as leading spaces on BBBB.
+    screen.row_text(0).should eq("")
+    screen.row_text(1).should eq("BBBB")
   end
 end
