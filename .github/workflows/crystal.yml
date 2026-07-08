@@ -1,0 +1,54 @@
+name: specs
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  posix:
+    name: ${{ matrix.os }} (full)
+    runs-on: ${{ matrix.os }}-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu", "macos"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+      - name: Install dependencies
+        run: shards install
+      - name: Format check
+        run: crystal tool format --check src spec
+      - name: Run tests
+        run: crystal spec --no-color
+      - name: Build CLI
+        run: shards build --no-debug
+
+  windows-core:
+    name: windows (core)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+      - name: Install dependencies
+        run: shards install
+      - name: Run core specs
+        # Parser/Screen/Width/Keys/Mouse/snapshot only — no PTY/Session/CLI.
+        # Mirrors the require-graph split in src/term-vt.cr (unix harness gated).
+        shell: bash
+        run: |
+          crystal spec --no-color \
+            spec/parser_spec.cr \
+            spec/width_spec.cr \
+            spec/keys_spec.cr \
+            spec/mouse_encoding_spec.cr \
+            spec/snapshot_spec.cr \
+            spec/query_spec.cr \
+            spec/fixture_spec.cr \
+            spec/fuzz_spec.cr \
+            spec/captured_tty_spec.cr \
+            spec/screen/

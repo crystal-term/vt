@@ -1,4 +1,5 @@
-{% if flag?(:windows) %}
+# Crystal's Windows target flag is :win32; some older docs also mention :windows.
+{% if flag?(:win32) || flag?(:windows) %}
   exit
 {% else %}
   shard_root = File.expand_path("..", __DIR__)
