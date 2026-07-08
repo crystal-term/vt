@@ -1,6 +1,7 @@
 require "./cell"
 require "./parser"
 require "./width"
+require "./tab_stops"
 
 module Term::VT
   class Screen
@@ -41,7 +42,7 @@ module Term::VT
     @scroll_bottom : Int32
     @origin_mode : Bool
     @insert_mode : Bool
-    @tab_stops : Set(Int32)
+    @tab_stops : TabStops
 
     def initialize(rows : Int32 = 24, cols : Int32 = 80, scrollback : Int32 = 1000)
       @rows = {rows, 1}.max
@@ -63,7 +64,7 @@ module Term::VT
       @scroll_bottom = @rows - 1
       @origin_mode = false
       @insert_mode = false
-      @tab_stops = default_tab_stops(@cols)
+      @tab_stops = TabStops.new(@cols)
       @title = nil
       @bell_count = 0
       @unhandled = [] of String
@@ -83,10 +84,7 @@ module Term::VT
       wrap_pending if @pending_wrap
       wrap_pending if width == 2 && @autowrap && @cursor_col == @cols - 1
 
-      if @insert_mode
-        insert_chars(width)
-        clear_wide_pair_at(@cursor_row, @cols - 1)
-      end
+      insert_chars(width) if @insert_mode
 
       row = current_row
       clear_wide_pair_at(@cursor_row, @cursor_col)
@@ -134,7 +132,7 @@ module Term::VT
         @cursor_col = 0
         index
       when {"", 'H'}
-        @tab_stops << @cursor_col
+        @tab_stops.set(@cursor_col)
       when {"", 'c'}
         reset_screen_preserving_title
       else
@@ -157,19 +155,9 @@ module Term::VT
 
       case final
       when 'A'
-        n = pn(params, 0)
-        target = @cursor_row - n
-        if inside_scroll_region?
-          target = {target, @scroll_top}.max
-        end
-        move_cursor(row: target, col: @cursor_col)
+        move_cursor_vertical(-pn(params, 0))
       when 'B'
-        n = pn(params, 0)
-        target = @cursor_row + n
-        if inside_scroll_region?
-          target = {target, @scroll_bottom}.min
-        end
-        move_cursor(row: target, col: @cursor_col)
+        move_cursor_vertical(pn(params, 0))
       when 'C'
         move_cursor(row: @cursor_row, col: @cursor_col + pn(params, 0))
       when 'D'
@@ -181,14 +169,9 @@ module Term::VT
       when 'G'
         move_cursor(row: @cursor_row, col: one_based(params, 0) - 1)
       when 'd'
-        row = one_based(params, 0) - 1
-        row += @scroll_top if @origin_mode
-        move_cursor(row: row, col: @cursor_col)
+        vpa(one_based(params, 0))
       when 'H', 'f'
-        row = one_based(params, 0) - 1
-        col = one_based(params, 1) - 1
-        row += @scroll_top if @origin_mode
-        move_cursor(row: row, col: col)
+        cup(one_based(params, 0), one_based(params, 1))
       when 'J'
         erase_display(param(params, 0, 0))
       when 'K'
@@ -208,30 +191,22 @@ module Term::VT
       when 'T'
         scroll_down(pn(params, 0))
       when 'I'
-        if intermediates.empty?
+        with_empty_intermediates(params, intermediates, final) do
           @pending_wrap = false
           horizontal_tab(pn(params, 0))
-        else
-          record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
         end
       when 'Z'
-        if intermediates.empty?
+        with_empty_intermediates(params, intermediates, final) do
           @pending_wrap = false
           back_tab(pn(params, 0))
-        else
-          record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
         end
       when 'g'
-        if intermediates.empty?
+        with_empty_intermediates(params, intermediates, final) do
           clear_tab_stops(param(params, 0, 0))
-        else
-          record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
         end
       when 'r'
-        if intermediates.empty?
+        with_empty_intermediates(params, intermediates, final) do
           set_scroll_region(param(params, 0, 1), param(params, 1, @rows))
-        else
-          record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
         end
       when 's'
         save_cursor
@@ -243,10 +218,10 @@ module Term::VT
         if intermediates.empty? && param(params, 0, 0) == 6
           report_cursor_position
         else
-          record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
+          csi_unhandled(params, intermediates, final)
         end
       else
-        record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
+        csi_unhandled(params, intermediates, final)
       end
     end
 
@@ -261,9 +236,8 @@ module Term::VT
       @cols = {cols, 1}.max
       @primary = resize_grid(@primary)
       @alternate = resize_grid(@alternate)
-      @scroll_top = 0
-      @scroll_bottom = @rows - 1
-      resize_tab_stops(old_cols)
+      reset_scroll_region
+      @tab_stops.resize(old_cols, @cols)
       clamp_cursor
       @pending_wrap = false if @cursor_col < @cols - 1
       self
@@ -456,106 +430,6 @@ module Term::VT
       index
     end
 
-    private def index : Nil
-      if @cursor_row == @scroll_bottom
-        scroll_up(1)
-      elsif @cursor_row > @scroll_bottom
-        @cursor_row = {@cursor_row + 1, @rows - 1}.min
-      else
-        @cursor_row += 1
-      end
-    end
-
-    private def reverse_index : Nil
-      if @cursor_row == @scroll_top
-        scroll_down(1)
-      elsif @cursor_row < @scroll_top
-        @cursor_row = {@cursor_row - 1, 0}.max
-      else
-        @cursor_row -= 1
-      end
-    end
-
-    private def scroll_up(count : Int32) : Nil
-      full_region = full_scroll_region?
-      count.times do
-        removed = grid[@scroll_top]
-        (@scroll_top...@scroll_bottom).each do |row|
-          grid[row] = grid[row + 1]
-        end
-        grid[@scroll_bottom] = blank_row
-        push_scrollback(removed) if full_region && !@alt_screen
-      end
-    end
-
-    private def scroll_down(count : Int32) : Nil
-      count.times do
-        @scroll_bottom.downto(@scroll_top + 1) do |row|
-          grid[row] = grid[row - 1]
-        end
-        grid[@scroll_top] = blank_row
-      end
-    end
-
-    private def push_scrollback(row : Array(Cell)) : Nil
-      return if @scrollback_limit == 0
-
-      @scrollback << row
-      while @scrollback.size > @scrollback_limit
-        @scrollback.shift
-      end
-    end
-
-    private def move_cursor(row : Int32, col : Int32) : Nil
-      @pending_wrap = false
-      if @origin_mode
-        @cursor_row = row.clamp(@scroll_top, @scroll_bottom)
-      else
-        @cursor_row = row.clamp(0, @rows - 1)
-      end
-      @cursor_col = col.clamp(0, @cols - 1)
-    end
-
-    private def clamp_cursor : Nil
-      if @origin_mode
-        @cursor_row = @cursor_row.clamp(@scroll_top, @scroll_bottom)
-      else
-        @cursor_row = @cursor_row.clamp(0, @rows - 1)
-      end
-      @cursor_col = @cursor_col.clamp(0, @cols - 1)
-    end
-
-    private def home_cursor : Nil
-      if @origin_mode
-        move_cursor(row: @scroll_top, col: 0)
-      else
-        move_cursor(row: 0, col: 0)
-      end
-    end
-
-    private def inside_scroll_region? : Bool
-      @cursor_row >= @scroll_top && @cursor_row <= @scroll_bottom
-    end
-
-    private def full_scroll_region? : Bool
-      @scroll_top == 0 && @scroll_bottom == @rows - 1
-    end
-
-    private def set_scroll_region(top_one_based : Int32, bottom_one_based : Int32) : Nil
-      top = top_one_based
-      top = 1 if top <= 0
-      bottom = bottom_one_based
-      bottom = @rows if bottom <= 0
-
-      top = (top - 1).clamp(0, @rows - 1)
-      bottom = (bottom - 1).clamp(0, @rows - 1)
-      return unless top < bottom
-
-      @scroll_top = top
-      @scroll_bottom = bottom
-      home_cursor
-    end
-
     private def clear_wide_pair_at(row : Int32, col : Int32) : Nil
       target = grid[row][col]
 
@@ -613,6 +487,7 @@ module Term::VT
       row = current_row
       count.times { row.insert(@cursor_col, Cell.blank(@style)) }
       row.pop(count)
+      clear_wide_pair_at(@cursor_row, @cols - 1)
     end
 
     private def delete_chars(count : Int32) : Nil
@@ -625,95 +500,6 @@ module Term::VT
     private def erase_chars(count : Int32) : Nil
       last = {@cursor_col + count - 1, @cols - 1}.min
       erase_row_range(@cursor_row, @cursor_col, last)
-    end
-
-    private def insert_lines(count : Int32) : Nil
-      return unless inside_scroll_region?
-
-      count = {count, @scroll_bottom - @cursor_row + 1}.min
-      count.times do
-        @scroll_bottom.downto(@cursor_row + 1) do |row|
-          grid[row] = grid[row - 1]
-        end
-        grid[@cursor_row] = blank_row
-      end
-    end
-
-    private def delete_lines(count : Int32) : Nil
-      return unless inside_scroll_region?
-
-      count = {count, @scroll_bottom - @cursor_row + 1}.min
-      count.times do
-        (@cursor_row...@scroll_bottom).each do |row|
-          grid[row] = grid[row + 1]
-        end
-        grid[@scroll_bottom] = blank_row
-      end
-    end
-
-    private def save_cursor : Nil
-      saved = SavedCursor.new(@cursor_row, @cursor_col, @style, @pending_wrap, @origin_mode)
-      if @alt_screen
-        @saved_alternate = saved
-      else
-        @saved_primary = saved
-      end
-    end
-
-    private def restore_cursor : Nil
-      saved = @alt_screen ? @saved_alternate : @saved_primary
-      @cursor_row = saved.row
-      @cursor_col = saved.col
-      @style = saved.style
-      @pending_wrap = saved.pending_wrap
-      @origin_mode = saved.origin
-      clamp_cursor
-    end
-
-    private def default_tab_stops(cols : Int32) : Set(Int32)
-      stops = Set(Int32).new
-      col = 8
-      while col < cols
-        stops << col
-        col += 8
-      end
-      stops
-    end
-
-    private def resize_tab_stops(old_cols : Int32) : Nil
-      @tab_stops = @tab_stops.select { |col| col < @cols }.to_set
-      return unless @cols > old_cols
-
-      col = 8
-      while col < @cols
-        @tab_stops << col if col >= old_cols
-        col += 8
-      end
-    end
-
-    private def horizontal_tab(count : Int32) : Nil
-      count.times do
-        next_stop = @tab_stops.select { |col| col > @cursor_col }.min?
-        @cursor_col = next_stop || (@cols - 1)
-      end
-    end
-
-    private def back_tab(count : Int32) : Nil
-      count.times do
-        prev_stop = @tab_stops.select { |col| col < @cursor_col }.max?
-        @cursor_col = prev_stop || 0
-      end
-    end
-
-    private def clear_tab_stops(mode : Int32) : Nil
-      case mode
-      when 0
-        @tab_stops.delete(@cursor_col)
-      when 3
-        @tab_stops.clear
-      else
-        record_unhandled("CSI #{mode}g")
-      end
     end
 
     private def reset_screen_preserving_title : Nil
@@ -835,51 +621,16 @@ module Term::VT
       end
     end
 
-    private def set_private_modes(params : Array(CSIParam), enabled : Bool) : Nil
-      params.each do |param|
-        case param.value
-        when 25
-          @cursor_visible = enabled
-        when 7
-          @autowrap = enabled
-          @pending_wrap = false unless enabled
-        when 6
-          @origin_mode = enabled
-          home_cursor
-        when 47, 1047
-          enabled ? enter_alt_screen(clear: true, save: false) : leave_alt_screen(restore: false)
-        when 1049
-          enabled ? enter_alt_screen(clear: true, save: true) : leave_alt_screen(restore: true)
-        else
-          record_unhandled("CSI ?#{param.value}#{enabled ? 'h' : 'l'}")
-        end
+    private def with_empty_intermediates(params : Array(CSIParam), intermediates : String, final : Char, &) : Nil
+      if intermediates.empty?
+        yield
+      else
+        csi_unhandled(params, intermediates, final)
       end
     end
 
-    private def set_ansi_modes(params : Array(CSIParam), enabled : Bool) : Nil
-      params.each do |param|
-        case param.value
-        when 4
-          @insert_mode = enabled
-        else
-          record_unhandled("CSI #{param.value}#{enabled ? 'h' : 'l'}")
-        end
-      end
-    end
-
-    private def enter_alt_screen(clear : Bool, save : Bool) : Nil
-      save_cursor if save && !@alt_screen
-      @alt_screen = true
-      @alternate = build_grid if clear
-      @cursor_row = 0
-      @cursor_col = 0
-      @pending_wrap = false
-    end
-
-    private def leave_alt_screen(restore : Bool) : Nil
-      @alt_screen = false
-      restore_cursor if restore
-      @pending_wrap = false
+    private def csi_unhandled(params : Array(CSIParam), intermediates : String, final : Char) : Nil
+      record_unhandled("CSI #{intermediates}#{params.map(&.raw).join(';')}#{final}")
     end
 
     private def param(params : Array(CSIParam), index : Int32, default : Int32) : Int32
@@ -922,3 +673,8 @@ module Term::VT
     end
   end
 end
+
+require "./screen/scroll"
+require "./screen/cursor"
+require "./screen/modes"
+require "./screen/tabs"

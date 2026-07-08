@@ -28,6 +28,15 @@ describe Term::VT::Screen do
     screen.cell(0, 3).width.should eq(1)
   end
 
+  it "clears a dangling wide pair after ICH the same way as IRM" do
+    screen = Term::VT::Screen.new(rows: 1, cols: 4)
+    screen.feed("ab\u{3042}\e[1;1H\e[1@")
+
+    screen.cell(0, 3).continuation.should be_false
+    screen.cell(0, 3).width.should eq(1)
+    screen.row_text(0).should eq(" ab")
+  end
+
   it "records unknown ANSI modes as unhandled" do
     screen = Term::VT::Screen.new
     screen.feed("\e[2h")
