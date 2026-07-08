@@ -21,4 +21,29 @@ describe "screen snapshots" do
 
     screen.styled_snapshot.should eq("{}ok\n{}")
   end
+
+  it "includes extras in snapshot while still padding by cell count" do
+    screen = Term::VT::Screen.new(rows: 1, cols: 4)
+    screen.feed("e\u{0301}x")
+
+    # 4 cells: e+mark, x, space, space — more codepoints than cols, same cell pad.
+    screen.snapshot.should eq("e\u{0301}x  ")
+  end
+
+  it "emits combining marks inside styled_snapshot segments" do
+    screen = Term::VT::Screen.new(rows: 1, cols: 8)
+    screen.feed("\e[1me\u{0301}\e[0m")
+
+    screen.styled_snapshot.should eq("{bold}e\u{0301}")
+  end
+
+  it "finds text that includes attached zero-width marks" do
+    screen = Term::VT::Screen.new(rows: 1, cols: 6)
+    screen.feed("ae\u{0301}x")
+
+    screen.find("e\u{0301}").should eq({row: 0, col: 1})
+    screen.contains?("e\u{0301}").should be_true
+    # Exact match only — NFC form does not match NFD cell contents.
+    screen.contains?("é").should be_false
+  end
 end

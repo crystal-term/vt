@@ -88,7 +88,10 @@ module Term::VT
 
     def print(char : Char)
       width = Width.of(char)
-      return if width == 0
+      if width == 0
+        attach_zero_width(char)
+        return
+      end
 
       wrap_pending if @pending_wrap
       wrap_pending if width == 2 && @autowrap && @cursor_col == @cols - 1
@@ -105,6 +108,44 @@ module Term::VT
       end
 
       advance_after_print(width)
+    end
+
+    # Attach a width-0 character to the preceding cell (combining marks, VS16,
+    # ZWSP, directional marks). Cursor and pending-wrap state are unchanged.
+    # No target (column 0 of a fresh row) → drop, matching xterm.
+    private def attach_zero_width(char : Char) : Nil
+      target = zero_width_target_col
+      return unless target
+
+      row = current_row
+      cell = row[target]
+      extras = cell.extras
+      new_extras = extras ? (extras + char) : char.to_s
+      row[target] = Cell.new(
+        char: cell.char,
+        style: cell.style,
+        width: cell.width,
+        continuation: cell.continuation,
+        extras: new_extras,
+      )
+    end
+
+    # Column of the cell that should receive a width-0 attachment, or nil.
+    private def zero_width_target_col : Int32?
+      col = if @pending_wrap
+              @cursor_col
+            else
+              return nil if @cursor_col == 0
+
+              @cursor_col - 1
+            end
+
+      cell = current_row[col]
+      if cell.continuation && col > 0
+        col -= 1
+      end
+
+      col
     end
 
     def execute(byte : UInt8)
@@ -434,6 +475,7 @@ module Term::VT
           next if cell.continuation
 
           io << cell.char
+          io << cell.extras if cell.extras
         end
       end.rstrip
     end

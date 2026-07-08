@@ -6,7 +6,13 @@ module Term::VT
       String.build do |io|
         @rows.times do |row|
           io << '\n' if row > 0
-          @cols.times { |col| io << cell(row, col).char }
+          # Padding is by cell count, not codepoints — extras lengthen a row
+          # in code units without changing how many cells are emitted.
+          @cols.times do |col|
+            c = cell(row, col)
+            io << c.char
+            io << c.extras if c.extras
+          end
         end
       end
     end
@@ -58,6 +64,7 @@ module Term::VT
         end
 
         io << cell.char
+        io << cell.extras if cell.extras
       end
     end
 
@@ -66,7 +73,7 @@ module Term::VT
 
       while index >= 0
         cell = row[index]
-        return index unless cell.char == ' ' && !cell.continuation && cell.style == Style::DEFAULT
+        return index unless cell.blank? && cell.style == Style::DEFAULT
         index -= 1
       end
 
@@ -107,6 +114,12 @@ module Term::VT
 
           columns << col
           io << cell.char
+          if extras = cell.extras
+            extras.each_char do |ch|
+              columns << col
+              io << ch
+            end
+          end
         end
       end.rstrip
 

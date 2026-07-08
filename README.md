@@ -227,7 +227,7 @@ build support is unavailable.
 
 | Family | Sequences |
 | --- | --- |
-| UTF-8 | Ground-state UTF-8, including split code points and invalid-byte replacement. |
+| UTF-8 | Ground-state UTF-8, including split code points and invalid-byte replacement. Zero-width characters (combining marks, VS16 `U+FE0F`, ZWSP, directional marks) attach to the preceding cell; VS16 does not change cell width (wcwidth-compatible). |
 | C0 | `BEL`, `BS`, `HT`, `LF`/`VT`/`FF`, `CR`, `CAN`, `SUB`, `ESC`. |
 | ESC | `DECSC`/`DECRC` (`ESC 7`/`ESC 8`), `IND`, `RI`, `NEL`, `HTS` (`ESC H`), `RIS`, charset designations consumed and ignored. |
 | CSI cursor | `CUU`, `CUD`, `CUF`, `CUB`, `CNL`, `CPL`, `CHA`, `VPA`, `CUP`, `HVP`. |
@@ -249,8 +249,10 @@ Unknown or unsupported sequences are consumed silently and appended to
 ## Snapshot Format
 
 `screen.snapshot` is the exact grid contract for golden files: every row is
-present, every row is padded to `screen.cols`, and rows are joined by `\n`.
-Styling is ignored.
+present, every row is padded to `screen.cols` **cells** (not codepoints), and
+rows are joined by `\n`. Styling is ignored. Cells with attached zero-width
+`extras` emit base `char` then `extras`, so a row may contain more codepoints
+than `cols` while still covering exactly `cols` cells.
 
 `screen.styled_snapshot` is a run-length style contract. It emits one line per
 visible row, trims trailing default blank cells, and writes segments as:
@@ -269,6 +271,13 @@ Example:
 {bold fg=2}Done{} in {fg=#010203}3s
 ```
 
+`extras` join their cell's segment text (marks stay inside the same style run
+as the base character).
+
+`find` / `contains?` are exact byte/codepoint matches against the stored form
+— there is no Unicode normalization. Assertions must match the app's emitted
+form (e.g. NFD `"e\u{0301}"` does not match NFC `"é"`).
+
 ## Unsupported
 
 These are intentionally out of scope and should be added without changing the
@@ -277,6 +286,7 @@ public parser/screen split:
 - Left/right margins (`DECSLRM`) and rectangle operations.
 - Highlight mouse tracking (`?1001`) and DEC locator mode (left in `unhandled`).
 - Interpreting inbound mouse sequences from the child (events only flow child-ward from `Session`).
-- Grapheme clusters; width-0 combining marks are dropped.
+- Grapheme clustering (UAX #29): zero-width marks attach to the preceding
+  cell, but ZWJ sequences occupy multiple cells and VS16 does not widen.
 - Resize reflow; `resize` truncates/pads and clamps the cursor.
 - Windows/ConPTY.

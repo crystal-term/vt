@@ -39,12 +39,4 @@ describe Term::VT::Screen do
     screen.row_text(0).should eq("x")
     screen.cell(0, 1).continuation.should be_false
   end
-
-  it "drops zero-width combining marks in phase one" do
-    screen = Term::VT::Screen.new(rows: 1, cols: 4)
-    screen.feed("e\u{0301}")
-
-    screen.row_text(0).should eq("e")
-    screen.cursor.should eq({row: 0, col: 1})
-  end
 end
