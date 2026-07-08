@@ -14,35 +14,59 @@ module Term::VT
     Urxvt
   end
 
+  enum MouseButton
+    Left
+    Middle
+    Right
+    WheelUp
+    WheelDown
+
+    def code : Int32
+      case self
+      in .left?       then 0
+      in .middle?     then 1
+      in .right?      then 2
+      in .wheel_up?   then 64
+      in .wheel_down? then 65
+      end
+    end
+
+    def self.parse?(name : String) : self?
+      case name
+      when "left"       then Left
+      when "middle"     then Middle
+      when "right"      then Right
+      when "wheel_up"   then WheelUp
+      when "wheel_down" then WheelDown
+      else
+        nil
+      end
+    end
+  end
+
   # Encodes mouse events for the wire format the child process expects.
   # Coordinates are 0-based on the API surface and 1-based on the wire.
+  #
+  # Only `MouseEncoding::Sgr` changes the encoder; `Utf8` and `Urxvt` are
+  # tracked on the screen for assertions but encode as legacy X10 here.
   module Mouse
-    BUTTONS = {
-      :left       => 0,
-      :middle     => 1,
-      :right      => 2,
-      :wheel_up   => 64,
-      :wheel_down => 65,
-    }
-
     X10_COORD_MAX = 223
     MOTION_FLAG   =  32
     X10_RELEASE   =   3
 
-    def self.button_code(button : Symbol) : Int32
-      BUTTONS[button]? || raise ArgumentError.new("unknown mouse button: #{button}")
-    end
-
     def self.encode(
       row : Int32,
       col : Int32,
-      button : Symbol,
+      button : MouseButton,
       *,
       release : Bool = false,
       motion : Bool = false,
       encoding : MouseEncoding = MouseEncoding::Default,
     ) : Bytes
-      code = button_code(button)
+      raise ArgumentError.new("mouse row must be non-negative") if row < 0
+      raise ArgumentError.new("mouse col must be non-negative") if col < 0
+
+      code = button.code
       code |= MOTION_FLAG if motion
 
       x = col + 1

@@ -45,7 +45,7 @@ describe Term::VT::CLI::Tape do
     click = tape.directives[7].as(Term::VT::CLI::Tape::Click)
     click.row.should eq(2)
     click.col.should eq(4)
-    click.button.should eq(:left)
+    click.button.should eq(Term::VT::MouseButton::Left)
     tape.directives[8].as(Term::VT::CLI::Tape::Paste).text.should eq("clip")
     tape.directives[9].as(Term::VT::CLI::Tape::Expect).text.should eq("Hello")
     tape.directives[10].as(Term::VT::CLI::Tape::ExpectNot).text.should eq("Error")
@@ -62,7 +62,7 @@ describe Term::VT::CLI::Tape do
     click = tape.directives[1].as(Term::VT::CLI::Tape::Click)
     click.row.should eq(0)
     click.col.should eq(0)
-    click.button.should eq(:left)
+    click.button.should eq(Term::VT::MouseButton::Left)
   end
 
   it "rejects unknown click buttons with line numbers" do

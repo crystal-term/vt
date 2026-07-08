@@ -16,7 +16,7 @@ describe "Session mouse / paste / focus senders" do
         session.screen.mouse_tracking.should eq(Term::VT::MouseTracking::Normal)
         session.screen.mouse_encoding.should eq(Term::VT::MouseEncoding::Sgr)
 
-        session.mouse_down(2, 4, :left)
+        session.mouse_down(2, 4, Term::VT::MouseButton::Left)
         session.wait_for("DONE", deadline: 5.seconds)
         session.wait_exit(deadline: 5.seconds)
 

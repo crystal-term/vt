@@ -1,5 +1,4 @@
 require "./keys"
-require "./mouse"
 require "./pty"
 require "./screen"
 
@@ -85,32 +84,31 @@ module Term::VT
 
     # Coordinates are 0-based (matching `screen.cursor` / `screen.find`).
     # Raises ArgumentError when the live screen has mouse tracking off.
-    def mouse_down(row : Int32, col : Int32, button : Symbol = :left) : self
+    def mouse_down(row : Int32, col : Int32, button : MouseButton = MouseButton::Left) : self
       send_mouse(row, col, button, release: false)
     end
 
-    def mouse_up(row : Int32, col : Int32, button : Symbol = :left) : self
+    def mouse_up(row : Int32, col : Int32, button : MouseButton = MouseButton::Left) : self
       send_mouse(row, col, button, release: true)
     end
 
-    def click(row : Int32, col : Int32, button : Symbol = :left) : self
-      mouse_down(row, col, button)
-      mouse_up(row, col, button)
+    # Down + up under one mode/encoding snapshot.
+    def click(row : Int32, col : Int32, button : MouseButton = MouseButton::Left) : self
+      encoding = require_mouse_encoding
+      send(Mouse.encode(row, col, button, release: false, encoding: encoding))
+      send(Mouse.encode(row, col, button, release: true, encoding: encoding))
     end
 
     # Motion event (meaningful under Button/Any tracking). Encodes bit 32.
-    def mouse_move(row : Int32, col : Int32, button : Symbol = :left) : self
+    def mouse_move(row : Int32, col : Int32, button : MouseButton = MouseButton::Left) : self
       send_mouse(row, col, button, release: false, motion: true)
     end
 
-    # Wheel press events (buttons 64/65). `direction` is `:up` or `:down`.
-    def scroll(row : Int32, col : Int32, direction : Symbol) : self
-      button = case direction
-               when :up   then :wheel_up
-               when :down then :wheel_down
-               else
-                 raise ArgumentError.new("unknown scroll direction: #{direction}")
-               end
+    # Wheel press (buttons 64/65). Pass `MouseButton::WheelUp` or `WheelDown`.
+    def scroll(row : Int32, col : Int32, button : MouseButton) : self
+      unless button.wheel_up? || button.wheel_down?
+        raise ArgumentError.new("scroll requires WheelUp or WheelDown, got #{button}")
+      end
       mouse_down(row, col, button)
     end
 
@@ -278,19 +276,22 @@ module Term::VT
     private def send_mouse(
       row : Int32,
       col : Int32,
-      button : Symbol,
+      button : MouseButton,
       *,
       release : Bool,
       motion : Bool = false,
     ) : self
-      encoding = @mutex.synchronize do
+      encoding = require_mouse_encoding
+      send(Mouse.encode(row, col, button, release: release, motion: motion, encoding: encoding))
+    end
+
+    private def require_mouse_encoding : MouseEncoding
+      @mutex.synchronize do
         if @screen.mouse_tracking.off?
           raise ArgumentError.new("mouse tracking is not enabled (CSI ?1000h / ?9h / ?1002h / ?1003h)")
         end
         @screen.mouse_encoding
       end
-
-      send(Mouse.encode(row, col, button, release: release, motion: motion, encoding: encoding))
     end
 
     private def notify_update : Nil

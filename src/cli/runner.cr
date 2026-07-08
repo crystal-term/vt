@@ -121,18 +121,12 @@ module Term::VT::CLI
             require_session(session, directive).press(directive.key)
           when Tape::Click
             active = require_session(session, directive)
-            begin
+            session_input(active, directive) do
               active.click(directive.row, directive.col, directive.button)
-            rescue ex : ArgumentError
-              raise Failure.new(ex.message || "click failed", render(active.screen), directive.line)
             end
           when Tape::Paste
-            active = require_session(session, directive)
-            begin
-              active.paste(directive.text)
-            rescue ex : ArgumentError
-              raise Failure.new(ex.message || "paste failed", render(active.screen), directive.line)
-            end
+            # paste never raises for mode; always meaningful raw or bracketed.
+            require_session(session, directive).paste(directive.text)
           when Tape::Expect
             active = require_session(session, directive)
             screen = active.screen
@@ -264,6 +258,13 @@ module Term::VT::CLI
 
     private def require_session(session : Term::VT::Session?, directive : Tape::Directive) : Term::VT::Session
       session || raise UsageError.new("#{directive.class.name.split("::").last} requires a running session", directive.line)
+    end
+
+    # Maps fail-loud Session input errors (mouse/focus) to exit-1 Failure.
+    private def session_input(session : Term::VT::Session, directive : Tape::Directive, &) : Nil
+      yield
+    rescue ex : ArgumentError
+      raise Failure.new(ex.message || "input failed", render(session.screen), directive.line)
     end
 
     private def render(screen : Term::VT::Screen) : String

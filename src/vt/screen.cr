@@ -1,4 +1,5 @@
 require "./cell"
+require "./mouse"
 require "./parser"
 require "./width"
 require "./tab_stops"

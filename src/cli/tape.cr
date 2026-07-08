@@ -81,9 +81,9 @@ module Term::VT::CLI
     class Click < Directive
       getter row : Int32
       getter col : Int32
-      getter button : Symbol
+      getter button : Term::VT::MouseButton
 
-      def initialize(line : Int32, @row : Int32, @col : Int32, @button : Symbol = :left)
+      def initialize(line : Int32, @row : Int32, @col : Int32, @button : Term::VT::MouseButton = Term::VT::MouseButton::Left)
         super(line)
       end
     end
@@ -209,13 +209,13 @@ module Term::VT::CLI
               require_run!(saw_run, "click", line_number)
               row, index = read_non_negative_int(tokens, index + 1, line_number, "click row")
               col, index = read_non_negative_int(tokens, index, line_number, "click column")
-              button = :left
+              button = Term::VT::MouseButton::Left
               if next_token = tokens[index]?
                 unless keyword?(next_token)
                   button = case next_token.value
-                           when "left"   then :left
-                           when "middle" then :middle
-                           when "right"  then :right
+                           when "left"   then Term::VT::MouseButton::Left
+                           when "middle" then Term::VT::MouseButton::Middle
+                           when "right"  then Term::VT::MouseButton::Right
                            else
                              raise error(line_number, "unknown click button #{next_token.value.inspect}")
                            end
